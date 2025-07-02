@@ -6,15 +6,6 @@ const isProd = process.env.NODE_ENV === 'production';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
-  async rewrites() {
-    return [
-      {
-        source: '/api/proxy/:path*',
-        destination: 'https://qsrapi.signfeed.in/:path*'
-      }
-    ]
-  },
-
   images: {
     unoptimized: true,
     remotePatterns: [
