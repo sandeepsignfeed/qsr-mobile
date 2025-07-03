@@ -84,8 +84,6 @@ const PhoneNumberForm: React.FC = () => {
         totalPrice: item.price * item.quantity,
       }));
 
-      // Step 1: Register Order
-      console.log("🔄 Registering order...");
       const registerRes = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/create-order`,
         {
@@ -103,14 +101,8 @@ const PhoneNumberForm: React.FC = () => {
         }
       );
 
-      if (!registerRes.ok) {
-        const errorText = await registerRes.text();
-        console.error("❌ Order registration failed:", errorText);
-        throw new Error("Order registration failed");
-      }
+      if (!registerRes.ok) throw new Error("Order registration failed");
 
-      // Step 2: Initiate Payment
-      console.log("🔄 Initiating payment...");
       const initiateRes = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/initiate-payment`,
         {
@@ -125,16 +117,10 @@ const PhoneNumberForm: React.FC = () => {
         }
       );
 
-      if (!initiateRes.ok) {
-        const errorText = await initiateRes.text();
-        console.error("❌ Payment initiation failed:", errorText);
-        throw new Error("Payment initiation failed");
-      }
+      if (!initiateRes.ok) throw new Error("Payment initiation failed");
 
       const initiateData = await initiateRes.json();
-      console.log("✅ Payment initiated:", initiateData);
 
-      // Step 3: Open Razorpay
       const rzp = new window.Razorpay({
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
         order_id: initiateData.id,
@@ -143,12 +129,9 @@ const PhoneNumberForm: React.FC = () => {
         name: "Haldiram's",
         description: "Order Payment",
         handler: async (resp: RazorpayResponse) => {
-          console.log("💳 Payment successful:", resp);
-          setCurrentComponentCount(7); // Loading screen
+          setCurrentComponentCount(7);
 
           try {
-            // Step 4: Verify Payment
-            console.log("🔄 Verifying payment...");
             const verifyRes = await fetch(
               `${process.env.NEXT_PUBLIC_API_URL}/api/verify-payment`,
               {
@@ -158,19 +141,11 @@ const PhoneNumberForm: React.FC = () => {
               }
             );
 
-            if (!verifyRes.ok) {
-              throw new Error("Payment verification failed");
-            }
-
             const verifyData = await verifyRes.json();
             if (verifyData.status !== 200) {
               throw new Error("Payment verification failed");
             }
 
-            console.log("✅ Payment verified");
-
-            // Step 5: Update Payment Status
-            console.log("🔄 Updating payment status...");
             await fetch(
               `${process.env.NEXT_PUBLIC_API_URL}/api/update-payment-status`,
               {
@@ -180,117 +155,88 @@ const PhoneNumberForm: React.FC = () => {
               }
             );
 
-            // Step 6: Prepare Invoice Data
             const location = JSON.parse(
               localStorage.getItem("location") || "{}"
             );
-            
             const companyInfo = {
-              name: location.locationName || "Haldiram's",
-              address: `${location.addressLine1 || ""}, ${location.addressLine2 || ""}`.trim(),
-              city: location.city || "Delhi",
-              state: location.state || "India",
+              name: location.locationName || "Haldiram’s",
+              address: `${location.addressLine1 || ""}, ${
+                location.addressLine2 || ""
+              }`,
+              city: location.city || "",
+              state: location.state || "",
               serviceTax: location.serviceTax || 0,
             };
 
-            const orderDetails = {
-              orderId: initiateData.id,
-              customerName: username,
-              totalAmount: Math.round(totalPrice),
-              totalGST: Math.round(totalGST),
-              serviceTax,
-              phone,
-              orderType: orderType || "takeaway",
-              amountPaid: Math.round(totalPrice),
-              billNumber,
-              items: orderItems,
-            };
-
-            console.log("📄 Generating invoice...");
-            console.log("Order Details:", orderDetails);
-            console.log("Company Info:", companyInfo);
-
-            // Step 7: Generate Invoice
             const generateRes = await fetch("/api/generate-invoice", {
               method: "POST",
-              headers: { 
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-              },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                orderDetails,
+                orderDetails: {
+                  orderId: initiateData.id,
+                  customerName: username,
+                  totalAmount: Math.round(totalPrice),
+                  totalGST: Math.round(totalGST),
+                  serviceTax,
+                  phone,
+                  orderType,
+                  amountPaid: totalPrice,
+                  billNumber,
+                  items: orderItems,
+                },
                 companyInfo,
               }),
             });
 
-            console.log("📊 Invoice API Response Status:", generateRes.status);
+            let genData;
 
             if (!generateRes.ok) {
               const errorText = await generateRes.text();
-              console.error("❌ Invoice generation failed:");
-              console.error("Status:", generateRes.status);
-              console.error("Response:", errorText);
-              
-              // Still show success screen even if invoice fails
-              alert("Payment successful! Invoice generation failed, but your order is confirmed.");
-              setCurrentComponentCount(8);
-              return;
+              console.error(
+                "❌ Invoice generation failed:",
+                generateRes.status,
+                errorText
+              );
+              throw new Error(
+                "Invoice generation failed: Bad response from server"
+              );
             }
 
-            let genData;
             try {
               genData = await generateRes.json();
               console.log("✅ Invoice Response:", genData);
             } catch (jsonErr) {
-              console.error("❌ Failed to parse invoice response:", jsonErr);
-              alert("Payment successful! Invoice may have issues, but your order is confirmed.");
-              setCurrentComponentCount(8);
-              return;
+              console.error(
+                "❌ Failed to parse invoice response JSON:",
+                jsonErr
+              );
+              throw new Error(
+                "Invoice generation failed: Invalid JSON response"
+              );
             }
 
             if (!genData.success) {
-              console.error("❌ Invoice generation reported failure:", genData);
-              alert(`Payment successful! Invoice issue: ${genData.message || "Unknown error"}`);
-              setCurrentComponentCount(8);
-              return;
+              throw new Error("Invoice generation failed");
             }
 
-            console.log("✅ Everything completed successfully!");
-            console.log("📄 Invoice URL:", genData.invoiceUrl);
-            
-            // Show success screen
-            setCurrentComponentCount(8);
-
+            setCurrentComponentCount(8); // Success screen
           } catch (err: unknown) {
             console.error("❌ Error after payment:", err);
-            const errorMessage = err instanceof Error ? err.message : "Unknown error";
             alert(
-              `Payment succeeded, but there was a problem: ${errorMessage}. Your order is confirmed.`
+              "Payment succeeded, but there was a problem generating the receipt."
             );
-            // Still show success since payment went through
-            setCurrentComponentCount(8);
-          }
-        },
-        modal: {
-          ondismiss: () => {
-            console.log("💳 Payment cancelled by user");
-            setLoading(false);
           }
         },
         prefill: {
           name: username,
           contact: phone,
         },
-        theme: {
-          color: "#00AB2E"
-        }
       });
 
       rzp.open();
     } catch (err: unknown) {
       console.error("❌ Payment Error:", err);
-      const errorMessage = err instanceof Error ? err.message : "Unknown error";
-      alert(`Something went wrong: ${errorMessage}`);
+      alert("Something went wrong during payment.");
     } finally {
       setLoading(false);
     }
@@ -303,16 +249,6 @@ const PhoneNumberForm: React.FC = () => {
       }`}
       style={{ backgroundImage: "url(./Images/background_image.png)" }}
     >
-      {/* Loading Overlay */}
-      {loading && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#00AB2E] mx-auto mb-4"></div>
-            <p className="text-gray-700">Processing payment...</p>
-          </div>
-        </div>
-      )}
-
       <div className="mt-16 md:mt-24">
         <img
           src="./Images/Menu_logo.png"
@@ -358,25 +294,22 @@ const PhoneNumberForm: React.FC = () => {
             pattern="\d*"
             maxLength={12}
             className="w-full border-2 border-[#DAD9F4] rounded-lg px-4 h-12 md:h-24 text-2xl md:text-3xl focus:outline-none focus:ring-2 focus:ring-[#00AB2E] mb-10 text-black"
-            placeholder="Enter 10-digit number"
           />
 
           <div className="flex gap-6">
             <button
               onClick={() => setCurrentComponentCount(4)}
-              disabled={loading}
-              className="w-full border-2 border-[#141414] text-[#000000EB] h-12 md:h-24 rounded-lg text-sm md:text-3xl font-medium disabled:opacity-50"
+              className="w-full border-2 border-[#141414] text-[#000000EB] h-12 md:h-24 rounded-lg text-sm md:text-3xl font-medium"
               style={{ fontFamily: "CustomFontP" }}
             >
               Back
             </button>
             <button
               onClick={handlePayment}
-              disabled={loading || !phone || phone.length !== 10}
-              className="w-full bg-[#00AB2E] text-white h-12 md:h-24 rounded-lg text-sm md:text-3xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-[#00AB2E] text-white h-12 md:h-24 rounded-lg text-sm md:text-3xl font-medium"
               style={{ fontFamily: "CustomFontP" }}
             >
-              {loading ? "Processing..." : "Pay Now"}
+              Pay Now
             </button>
           </div>
         </div>
