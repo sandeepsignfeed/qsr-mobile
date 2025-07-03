@@ -35,19 +35,93 @@ interface CompanyInfo {
   serviceTax?: number;
 }
 
-// ---------- Chrome Path ----------
+// ---------- Cross-Platform Chrome Path ----------
 function getSystemChromePath(): string {
-  const chromePaths = [
-    path.join(process.env.LOCALAPPDATA || "", "Google\\Chrome\\Application\\chrome.exe"),
-    path.join("C:\\Program Files (x86)", "Google\\Chrome\\Application\\chrome.exe"),
-    path.join("C:\\Program Files", "Google\\Chrome\\Application\\chrome.exe"),
-    path.join(process.env.LOCALAPPDATA || "", "Microsoft\\Edge\\Application\\msedge.exe"),
-    path.join("C:\\Program Files (x86)", "Microsoft\\Edge\\Application\\msedge.exe"),
-    path.join("C:\\Program Files", "Microsoft\\Edge\\Application\\msedge.exe"),
-  ];
-  const found = chromePaths.find(fs.existsSync);
-  if (!found) throw new Error("System-installed Chrome or Edge not found.");
-  return found;
+  const platform = os.platform();
+  let chromePaths: string[] = [];
+
+  if (platform === "win32") {
+    // Windows paths
+    chromePaths = [
+      path.join(process.env.LOCALAPPDATA || "", "Google\\Chrome\\Application\\chrome.exe"),
+      path.join("C:\\Program Files (x86)", "Google\\Chrome\\Application\\chrome.exe"),
+      path.join("C:\\Program Files", "Google\\Chrome\\Application\\chrome.exe"),
+      path.join(process.env.LOCALAPPDATA || "", "Microsoft\\Edge\\Application\\msedge.exe"),
+      path.join("C:\\Program Files (x86)", "Microsoft\\Edge\\Application\\msedge.exe"),
+      path.join("C:\\Program Files", "Microsoft\\Edge\\Application\\msedge.exe"),
+    ];
+  } else if (platform === "darwin") {
+    // macOS paths
+    chromePaths = [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    ];
+  } else {
+    // Linux paths
+    chromePaths = [
+      "/usr/bin/google-chrome",
+      "/usr/bin/google-chrome-stable",
+      "/usr/bin/chromium-browser",
+      "/usr/bin/chromium",
+      "/snap/bin/chromium",
+      "/usr/bin/microsoft-edge",
+      "/usr/bin/microsoft-edge-stable",
+    ];
+  }
+
+  console.log(`🔍 Platform detected: ${platform}`);
+  console.log(`🔍 Checking Chrome paths:`, chromePaths);
+
+  for (const chromePath of chromePaths) {
+    if (fs.existsSync(chromePath)) {
+      console.log(`✅ Found Chrome at: ${chromePath}`);
+      return chromePath;
+    }
+  }
+
+  // If no system Chrome found, try to use bundled Chromium
+  throw new Error(`System-installed Chrome or Edge not found on ${platform}. Please install Chrome or use bundled Chromium.`);
+}
+
+// Alternative function that falls back to bundled Chromium
+async function launchBrowser() {
+  try {
+    // First try to use system Chrome
+    const chromePath = getSystemChromePath();
+    console.log(`🚀 Launching browser with system Chrome: ${chromePath}`);
+    
+    return await puppeteer.launch({
+      headless: true,
+      executablePath: chromePath,
+      args: [
+        "--no-sandbox", 
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu"
+      ],
+      userDataDir: path.join(os.tmpdir(), "puppeteer-profile"),
+    });
+  } catch (error) {
+    console.log('⚠️ System Chrome not found, trying bundled Chromium...');
+    console.log('Error:', error instanceof Error ? error.message : String(error));
+    
+    // Fall back to bundled Chromium (requires puppeteer instead of puppeteer-core)
+    // You might need to install puppeteer: npm install puppeteer
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const puppeteerFull = require('puppeteer');
+    
+    return await puppeteerFull.launch({
+      headless: true,
+      args: [
+        "--no-sandbox", 
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu"
+      ],
+      userDataDir: path.join(os.tmpdir(), "puppeteer-profile"),
+    });
+  }
 }
 
 // ---------- Bill Number ----------
@@ -121,24 +195,24 @@ async function generateInvoicePDF(
     </body></html>
   `;
 
-  const chromePath = getSystemChromePath();
-  const browser = await puppeteer.launch({
-    headless: true,
-    executablePath: chromePath,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    userDataDir: path.join(os.tmpdir(), "puppeteer-profile"),
-  });
+  console.log('🔥 Starting PDF generation...');
+  
+  const browser = await launchBrowser();
+  console.log('✅ Browser launched successfully');
 
   const page = await browser.newPage();
   await page.setContent(invoiceHTML, { waitUntil: "networkidle0" });
+  console.log('✅ HTML content loaded');
 
   const pdfBuffer = await page.pdf({
     width: "58mm",
     height: "100mm",
     printBackground: true,
   });
+  console.log('✅ PDF generated');
 
   await browser.close();
+  console.log('✅ Browser closed');
 
   const invoiceDir = path.join(process.cwd(), "public/invoices");
   fs.mkdirSync(invoiceDir, { recursive: true });
@@ -146,6 +220,7 @@ async function generateInvoicePDF(
   const filename = `${orderDetails.orderId}.pdf`;
   const filePath = path.join(invoiceDir, filename);
   fs.writeFileSync(filePath, pdfBuffer);
+  console.log(`✅ PDF saved to: ${filePath}`);
 
   return { filePath: `/invoices/${filename}`, billNumber };
 }
@@ -165,6 +240,8 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    console.log('📄 Starting invoice generation for order:', orderDetails.orderId);
 
     const { filePath, billNumber } = await generateInvoicePDF(orderDetails, companyInfo);
 
@@ -190,6 +267,7 @@ export async function POST(req: NextRequest) {
         from: process.env.TWILIO_PHONE_NUMBER!,
         to: fullPhone,
       });
+      console.log("✅ SMS sent successfully");
     } catch (smsError) {
       console.error("❌ SMS send failed:", smsError);
       return NextResponse.json(

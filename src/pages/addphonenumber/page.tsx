@@ -188,8 +188,32 @@ const PhoneNumberForm: React.FC = () => {
               }),
             });
 
-            const genData = await generateRes.json();
-            console.log("✅ Invoice Response:", genData);
+            let genData;
+
+            if (!generateRes.ok) {
+              const errorText = await generateRes.text();
+              console.error(
+                "❌ Invoice generation failed:",
+                generateRes.status,
+                errorText
+              );
+              throw new Error(
+                "Invoice generation failed: Bad response from server"
+              );
+            }
+
+            try {
+              genData = await generateRes.json();
+              console.log("✅ Invoice Response:", genData);
+            } catch (jsonErr) {
+              console.error(
+                "❌ Failed to parse invoice response JSON:",
+                jsonErr
+              );
+              throw new Error(
+                "Invoice generation failed: Invalid JSON response"
+              );
+            }
 
             if (!genData.success) {
               throw new Error("Invoice generation failed");
@@ -235,25 +259,25 @@ const PhoneNumberForm: React.FC = () => {
 
       <div className="text-center mb-8 px-5">
         <h2
-          style={{ fontFamily: "CustomFontP" }}
           className="text-lg md:text-5xl font-semibold text-[#171717] my-4"
+          style={{ fontFamily: "CustomFontP" }}
         >
           Please Enter Your Phone Number
         </h2>
         <p
-          style={{ fontFamily: "CustomFontP" }}
           className="text-xs md:text-2xl text-[#545454]"
+          style={{ fontFamily: "CustomFontP" }}
         >
-          {` Once you enter your phone number, we'll send you an E-Receipt.`}
+          {`Once you enter your phone number, we'll send you an E-Receipt.`}
         </p>
       </div>
 
       <div className="flex items-center justify-center mt-12 px-4">
         <div className="bg-white rounded-xl border border-[#454545] w-full max-w-md md:max-w-3xl px-6 md:px-14 py-10 md:py-14">
           <label
-            style={{ fontFamily: "CustomFontP" }}
             htmlFor="phone"
             className="block text-lg md:text-2xl text-gray-700 mb-3"
+            style={{ fontFamily: "CustomFontP" }}
           >
             Phone number
           </label>
@@ -263,32 +287,29 @@ const PhoneNumberForm: React.FC = () => {
             name="phone"
             value={phone}
             onChange={(e) => {
-              const rawValue = e.target.value;
-              const onlyNumbers = rawValue.replace(/\D/g, ""); // Remove non-digits
-              if (onlyNumbers.length <= 12) {
-                setPhone(onlyNumbers);
-              }
+              const rawValue = e.target.value.replace(/\D/g, "");
+              if (rawValue.length <= 12) setPhone(rawValue);
             }}
-            inputMode="numeric" // Better mobile keyboard
-            pattern="\d*" // Hints for numeric input
+            inputMode="numeric"
+            pattern="\d*"
             maxLength={12}
             className="w-full border-2 border-[#DAD9F4] rounded-lg px-4 h-12 md:h-24 text-2xl md:text-3xl focus:outline-none focus:ring-2 focus:ring-[#00AB2E] mb-10 text-black"
           />
 
           <div className="flex gap-6">
             <button
-              style={{ fontFamily: "CustomFontP" }}
-              onClick={handlePayment}
-              className="w-full bg-[#00AB2E] text-white h-12 md:h-24 rounded-lg text-sm md:text-3xl font-medium"
-            >
-              Pay Now
-            </button>
-            <button
-              style={{ fontFamily: "CustomFontP" }}
               onClick={() => setCurrentComponentCount(4)}
               className="w-full border-2 border-[#141414] text-[#000000EB] h-12 md:h-24 rounded-lg text-sm md:text-3xl font-medium"
+              style={{ fontFamily: "CustomFontP" }}
             >
               Back
+            </button>
+            <button
+              onClick={handlePayment}
+              className="w-full bg-[#00AB2E] text-white h-12 md:h-24 rounded-lg text-sm md:text-3xl font-medium"
+              style={{ fontFamily: "CustomFontP" }}
+            >
+              Pay Now
             </button>
           </div>
         </div>
